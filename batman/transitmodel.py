@@ -384,4 +384,5 @@ class TransitParams(object):
 		self.limb_dark = None
 		self.fp = None
 		self.t_secondary = None
+		self.t_ref = None
 
