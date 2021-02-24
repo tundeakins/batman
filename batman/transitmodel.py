@@ -385,4 +385,5 @@ class TransitParams(object):
 		self.fp = None
 		self.t_secondary = None
 		self.t_ref = None
+		self.split_time = True
 

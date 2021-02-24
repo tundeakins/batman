@@ -71,7 +71,7 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
         if t_ref < t.min() or t.max() < t_ref:        #if reference time t0 is not within this timeseries
             #find transit time that falls around middle of the data
             ntrans = int((np.median(t) - tref)/P)   
-            tref = t0 + ntrans*P
+            tref = t_ref + ntrans*P
             
         nt = round( (tref-t.min())/P )                            #how many transits behind tref is the first transit
         tr_first = tref - nt*P                                    #time of first transit in data
@@ -120,7 +120,7 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
 
 def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=None,
                     max_err=1.0, nthreads = 1, fac = None, transittype = "primary",
-                    supersample_factor = 1, exp_time = 0.):
+                    supersample_factor = 1, exp_time = 0., debug=False):
     """
     Funtion to model transits with TTV. It runs the usual batman TransitModel on data splitted into several arrays 
     each consisting of  a single transit. The data is splitted using the `split_transits` function which by default
@@ -159,9 +159,15 @@ def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=N
 	>>> flux = batman.TTV_TransitModel(params, max_err = 0.5, nthreads=4)
 
     """
-
-    tr_times, _, _, _ = split_transits(time, params.per, params.t_ref, flux, find_peaks, find_peaks_kw)   #params.t_ref #break data into time bins 
+    if params.split_time is True:
+        tr_times, _, _, _ = split_transits(time, params.per, params.t_ref, flux, find_peaks, find_peaks_kw)   #params.t_ref #break data into time bins 
+        time_array_used = "splitting time within function"
+    else:
+        tr_times = time
+        time_array_used = "using already splitted input time array"
     
+    if debug: print(time_array_used)
+
     flux_batman = []
     for i, t0 in enumerate(params.t0):
         batparams = deepcopy(params)
