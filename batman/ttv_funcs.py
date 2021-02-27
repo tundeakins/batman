@@ -3,8 +3,10 @@
 
 
 import numpy as np
-from copy import copy, deepcopy
 import matplotlib.pyplot as plt
+
+from copy import copy, deepcopy
+from collections import namedtuple
 from . import TransitModel
 
 
@@ -17,7 +19,7 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
     
     """
     Funtion to split the transits in data into individual transits so that each transit can have a 
-    unique mid transit time t0.
+    unique mid transit time t0. Recommended to set show_plot=True to visually ensure that transits are well separated.
     
     Parameters:
     -----------
@@ -26,18 +28,21 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
         times of the full transit data to be splitted.
     
     P : float;
-        Orbital period.
+        Orbital period in same unit as t.
     
     t_ref : float;
-        reference time of transit from literature. 
+        reference time of transit - from literature or visual estimate of a mid-transit time in the data 
         Used to calculate expected time of transits in the data assuming linear ephemerides.
         If you don't trust t_ref to accurately find the transits. Use find_peaks=True to instead find peaks in data.
     
-    flux : np.array; 
+    flux : np.array, (optional); 
         Flux value at time t.
+
+    show_plot: bool;
+        set true to plot the data and show split points. Requires flux to be given. 
         
     find_peaks: Bool;
-        Set to True to use scipy's find_peaks to find mid transit times.
+        Set to True to use scipy's find_peaks to find mid transit times. t_ref is not required if find_peaks is being used to identify transits.
     
     find_peaks_kw: dict;
         Keyword arguments to pass to find_peaks function. Takes the following keys:
@@ -107,7 +112,7 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
         plt.figure(figsize=(15,3))
         plt.plot(t,flux,".")
         for edg in tr_edges: plt.axvline(edg, ls="dashed", c="k", alpha=0.3)
-        plt.plot(t0s, 0.987*np.ones_like(t0s),"k^")
+        plt.plot(t0s, (0.992*np.min(flux))*np.ones_like(t0s),"k^")
         plt.xlabel("Time (days)", fontsize=14)
         if find_peaks: plt.title("Using find_peaks: dashed vertical lines = transit splitting times;  triangles = identified transits");
         else: plt.title("Using t_ref: dashed vertical lines = transit splitting times;  triangles = identified transits");
@@ -117,7 +122,7 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
     return tr_times, tr_edges, indz, t0s
 
 
-
+'''
 def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=None,
                     max_err=1.0, nthreads = 1, fac = None, transittype = "primary",
                     supersample_factor = 1, exp_time = 0., debug=False):
@@ -179,4 +184,146 @@ def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=N
         
         
     return np.concatenate(flux_batman)
+'''    
+
+
+def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=None,
+                    max_err=1.0, nthreads = 1, fac = None, transittype = "primary",
+                    supersample_factor = 1, exp_time = 0., debug=False):
+    """
+    Function to model transits with TTV. It runs the usual batman.TransitModel on data splitted into several arrays 
+    each consisting of  a single transit. The data is splitted using the `split_transits` function which by default
+    uses a given reference time (params.t_ref) or alternatively scipy's `find_peaks` function to identify transits.
+    Ensure you run the `split_transits` function setting show_plots=True to be certain the splitting is reasonable.
+
+    Paramters:
+    ---------
+    params : object;
+        object containing the physical parameters of the transit. An instance of `TransitParams`
+
+    time : np.array;
+        Array of times at which to calculate transit model
+
+    max_err: float, optional;
+        Error tolerance (in parts per million) for the model.
+	
+	nthreads: int, optional;
+        Number of threads to use for parallelization. 
+
+	fac: float, optional
+        Scale factor for integration step size
+
+	transittype: string, optional
+        Type of transit ("primary" or "secondary")
+
+	supersample_factor:	integer, optional
+        Number of points subdividing exposure
+
+	exp_time: double, optional
+        Exposure time (in same units as `t`)
+
+    Returns:
+    --------
+    m : object;
+        object containing transit model for individual transits in the data and a function for generating the model light curves given some parameters
+	
+    Example:
+    --------	
+	>>> m = batman.TTV_TransitModel(params, time, max_err = 0.5, nthreads=4)
+
+    """
+    ttv_model = namedtuple("ttv_model", ['models', 'ttv_light_curve'])
+
+    if params.split_time is True:
+        tr_times, _, _, _ = split_transits(time, params.per, params.t_ref, flux, find_peaks, find_peaks_kw)   #params.t_ref #break data into time bins 
+        time_array_used = "splitting time within function"
+    else:
+        tr_times = time
+        time_array_used = "using already splitted input time array"
     
+    if debug: print(time_array_used)
+
+    
+    models = []
+    for i, t0 in enumerate(params.t0):
+        assert isinstance(tr_times, list), f"input time is {type(tr_times)}. It should be a list of time arrays for each transit. Set params.split_time to True if you want to split the transits. Or use batman.split_transits function to split the time before input"
+        assert isinstance(tr_times[i], np.ndarray), f"elements of the time list should be of type numpy.ndarray and not {type(tr_times[i])}"
+        
+        batparams = deepcopy(params)
+        batparams.t0 = t0
+
+        m = TransitModel(batparams, tr_times[i], max_err=max_err, nthreads = nthreads, fac = fac, 
+                        transittype=transittype, supersample_factor=supersample_factor, exp_time=exp_time)   #initializes model
+        models.append(m)
+        
+    ttv_model.models = models
+    
+    def ttv_light_curve(params):
+        """
+        Calculates the light curve for each transit using initialized TTV_models from TTV_TransitModel.
+        After the TTV model has be initialized using TTV_TransitModel(), ttv_light_curve can be called with new parameters without re-initializing.
+
+        Parameters:
+        -----------
+        params: object;
+            A `TransitParams` instance containing the transit parameters
+
+        Returns:
+        --------
+        flux : ndarray;
+            Returns the transit model flux.
+
+        Example:
+        ---------
+        >>> m = batman.TTV_TransitModel(params, time, max_err = 0.5, nthreads=4)
+        >>> flux = m.ttv_light_curve(params)
+
+        """
+        flux_batman = []
+        for i, t0 in enumerate(params.t0):
+            bat_params = deepcopy(params)
+            bat_params.t0 = t0
+
+            flux_batman.append(ttv_model.models[i].light_curve(bat_params))
+        
+        return np.concatenate(flux_batman)
+
+    ttv_model.ttv_light_curve = ttv_light_curve  
+       
+    return ttv_model 
+
+'''
+def TTV_light_curve(TTV_model, params):
+    """
+    Calculates the light curve for each transit using initializes TTV_models from TTV_TransitModel.
+
+    Parameters:
+    -----------
+    TTV_model : list;
+        List of same length as params.t0. It contains transit models for each transit in the data.
+
+    params: object;
+        A `TransitParams` instance containing the transit parameters
+
+    Returns:
+    --------
+    relative flux: ndarray;
+        a contatentated array of all the modeled transits in the data.
+
+    Example:
+
+    TTV_model = batman.TTV_TransitModel2(params, time)
+
+    flux = batman.light_curve(TTVmodel, params)
+    """
+
+    flux_batman = []
+    for i, t0 in enumerate(params.t0):
+        batparams = deepcopy(params)
+        batparams.t0 = t0
+
+        flux_batman.append(TTV_model[i].light_curve(batparams))
+    
+    return np.concatenate(flux_batman)
+
+'''
