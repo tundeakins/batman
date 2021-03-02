@@ -63,7 +63,8 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
     if find_peaks:
         from scipy.signal import find_peaks as fp
         assert flux is not None, f"finding peaks in data requires inputting the flux array at times t"
-        assert len(flux) == len(t), f"t and flux need to have same length"
+        assert len(flux) == len(t), "t and flux need to have same length"
+        assert np.sort(t) == t, "input t has to be sorted"
         
         
         if "distance" not in find_peaks_kw or find_peaks_kw["distance"] is None:
@@ -78,11 +79,11 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
             ntrans = int((np.median(t) - tref)/P)   
             tref = t_ref + ntrans*P
             
-        nt = round( (tref-t.min())/P )                            #how many transits behind tref is the first transit
+        nt = int( (tref-t.min())/P )                            #how many transits behind tref is the first transit
         tr_first = tref - nt*P                                    #time of first transit in data
         tr_last = tr_first + int((t.max() - tr_first)/P)*P        #time of last transit in data
     
-        n_tot_tr = round((tr_last - tr_first)/P)                  #total nmumber of transits in data_range
+        n_tot_tr = int((tr_last - tr_first)/P)                  #total nmumber of transits in data_range
         t0s = [tr_first + P*n for n in range(n_tot_tr+1) ]        #expected tmid of transits in data (if no TTV)
         #remove tmid without sufficient transit data around it
         t0s = list(filter(lambda t0: ( t[ (t<t0+0.1*P) & (t>t0-0.1*P)] ).size>0, t0s))
@@ -97,8 +98,8 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
             indz.append( np.argwhere(t<(t0s[i]+0.5*P)).reshape(-1) )
             #print("doing 0")
         elif i == len(t0s)-1: 
-            tr_times.append( t[( t>=(t0s[i]-0.5*P) )])
-            indz.append( np.argwhere( t>=(t0s[i]-0.5*P)).reshape(-1) )
+            tr_times.append( t[ t>(tr_times[i-1][-1]) ])
+            indz.append( np.argwhere(  t>(tr_times[i-1][-1]) ).reshape(-1) )
             #print("doing last")
         else: 
             tr_times.append( t[( t>(tr_times[i-1][-1]) ) & ( t<(t0s[i]+0.5*P) )] )
@@ -112,12 +113,12 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
         plt.figure(figsize=(15,3))
         plt.plot(t,flux,".")
         for edg in tr_edges: plt.axvline(edg, ls="dashed", c="k", alpha=0.3)
-        plt.plot(t0s, (0.992*np.min(flux))*np.ones_like(t0s),"k^")
+        plt.plot(t0s, (0.997*np.min(flux))*np.ones_like(t0s),"k^")
         plt.xlabel("Time (days)", fontsize=14)
         if find_peaks: plt.title("Using find_peaks: dashed vertical lines = transit splitting times;  triangles = identified transits");
         else: plt.title("Using t_ref: dashed vertical lines = transit splitting times;  triangles = identified transits");
 
-    
+    assert len(np.concatenate(tr_times)) == len(t), "Problem with splitting, len(concatenate(split_time)) != len(t)"
 
     return tr_times, tr_edges, indz, t0s
 
@@ -235,6 +236,7 @@ def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=N
     ttv_model = namedtuple("ttv_model", ['models', 'ttv_light_curve'])
 
     if params.split_time is True:
+        assert params.t_ref is not None, "Set a value for params.t_ref"
         tr_times, _, _, _ = split_transits(time, params.per, params.t_ref, flux, find_peaks, find_peaks_kw)   #params.t_ref #break data into time bins 
         time_array_used = "splitting time within function"
     else:
@@ -245,6 +247,7 @@ def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=N
 
     
     models = []
+    assert np.iterable(params.t0) and len(params.t0)>1, f"params.t0 has to be an iterable with length > 1"
     for i, t0 in enumerate(params.t0):
         assert isinstance(tr_times, list), f"input time is {type(tr_times)}. It should be a list of time arrays for each transit. Set params.split_time to True if you want to split the transits. Or use batman.split_transits function to split the time before input"
         assert isinstance(tr_times[i], np.ndarray), f"elements of the time list should be of type numpy.ndarray and not {type(tr_times[i])}"
@@ -280,6 +283,7 @@ def TTV_TransitModel(params, time, flux = None, find_peaks=False,find_peaks_kw=N
 
         """
         flux_batman = []
+        assert np.iterable(params.t0) and len(params.t0)>1, f"params.t0 has to be an iterable with length > 1"
         for i, t0 in enumerate(params.t0):
             bat_params = deepcopy(params)
             bat_params.t0 = t0
