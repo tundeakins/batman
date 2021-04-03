@@ -13,7 +13,7 @@ from . import TransitModel
 __all__ = ['split_transits', 'TTV_TransitModel']
 
 
-def split_transits(t, P, t_ref=None, flux=None, find_peaks=False, 
+def split_transits(t, P, t_ref=None, flux=None, input_t0s=None, find_peaks=False, 
                    find_peaks_kw={"flux_value": 0.995, "distance": None},
                   show_plot=False):
     
@@ -37,6 +37,10 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
     
     flux : np.array, (optional); 
         Flux value at time t.
+
+    input_t0s: array, list, (optional);
+        split transit using these mid-transit times
+
 
     show_plot: bool;
         set true to plot the data and show split points. Requires flux to be given. 
@@ -72,6 +76,10 @@ def split_transits(t, P, t_ref=None, flux=None, find_peaks=False,
         
         peaks,_ = fp(-1*flux, height=(-find_peaks_kw["flux_value"], None), distance = find_peaks_kw["distance"])
         t0s = t[peaks]
+    
+    elif input_t0s is not None:
+        t0s = list(input_t0s)
+
     else:
         tref = t_ref
         if t_ref < t.min() or t.max() < t_ref:        #if reference time t0 is not within this timeseries
