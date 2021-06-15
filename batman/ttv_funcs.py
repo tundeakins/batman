@@ -68,7 +68,7 @@ def split_transits(t, P, t_ref=None, flux=None, input_t0s=None, find_peaks=False
         from scipy.signal import find_peaks as fp
         assert flux is not None, f"finding peaks in data requires inputting the flux array at times t"
         assert len(flux) == len(t), "t and flux need to have same length"
-        assert np.sort(t) == t, "input t has to be sorted"
+        assert np.any(np.sort(t) == t), "input t has to be sorted"
         
         
         if "distance" not in find_peaks_kw or find_peaks_kw["distance"] is None:
@@ -126,7 +126,7 @@ def split_transits(t, P, t_ref=None, flux=None, input_t0s=None, find_peaks=False
         if find_peaks: plt.title("Using find_peaks: dashed vertical lines = transit splitting times;  triangles = identified transits");
         else: plt.title("Using t_ref: dashed vertical lines = transit splitting times;  triangles = identified transits");
 
-    assert len(np.concatenate(tr_times)) == len(t), "Problem with splitting, len(concatenate(split_time)) != len(t)"
+    if len(np.concatenate(tr_times)) == len(t): print("Problem with splitting, len(concatenate(split_time)) != len(t)")
 
     return tr_times, tr_edges, indz, t0s
 
